@@ -1,38 +1,26 @@
-# Set up the variables for the Glue jobs
-jobs:
-  - name: "job01.py"
-    script_path: "s3://glue-code-dev/job01.py"
-    additional_args: "--additional-argument-1=value1 --additional-argument-2=value2"
-  
-# Generate the YAML code for each Glue job using a for loop
-{% for job in jobs %}
 version: 0.2
+
 env:
   variables:
-    shell: bash
-    bucket_name: "your-bucket-name"
-    job_name: "{{ job.name }}"
-    job_script_path: "{{ job.script_path }}"
+    - JOB_NAMES: "job01.py"
+    - BUCKET_NAME: "s3://glue-code-dev"
+    - REGION: "ap-south-1"
+
 phases:
   install:
+    runtime-versions:
+      python: 3.7
     commands:
-      - echo Entered the install phase for {{ job.name }}....
-      - apt-get update -y
-      - apt-get install -y zip
-      - apt-get install -y awscli
-    finally:
-      - echo This always runs even if the update or install command fails 
+      - pip install awscli
   build:
     commands:
-      - echo Entered the build phase for {{ job.name }}......
-      - aws s3 cp $job_script_path .
-      - zip -r job.zip .
-      - aws s3 cp job.zip s3://$bucket_name/
-      - aws glue start-job-run --job-name $job_name --arguments='--job-bookmark-option=job-bookmark-enable --job-language=python --job-queue=Glue_Default_Queue --job-run-id=12345 --job-arguments="--s3_bucket_name='$bucket_name'" "{{ job.additional_args }}"'
-    finally:
-      - echo Installation Completed for {{ job.name }}......
-  post_build:
-    commands:
-      - echo Entered the post_build phase for {{ job.name }}....
-      - echo Build completed on `date`
-{% endfor %}
+      # Get the latest commit ID from the GitHub repository
+      - export COMMIT_ID=$(aws codecommit get-commit --repository-name <repository-name> --commit-id $(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -d':' -f2) | jq -r '.commitId')
+      # Loop through each Glue job
+      - |
+        for JOB_NAME in $JOB_NAMES; do
+          # Check if there are any changes in the Glue job script
+          DIFF=$(aws glue get-job --job-name $JOB_NAME | jq -r '.job.ScriptLocation' | cut -d'/' -f7- | xargs aws s3 cp - s3://$BUCKET_NAME/glue-job-script --quiet --region $REGION --sse AES256 && aws s3api head-object --bucket $BUCKET_NAME --key glue-job-script --if-modified-since "$(aws codecommit get-commit --repository-name <repository-name> --commit-id $COMMIT_ID | jq -r '.commit.committer.date' | date -u +"%a, %d %b %Y %T GMT")" || echo "No changes in the Glue job script.")
+          # If there are changes, upload the new script to S3 and update the Glue job
+          if [[ -n "$DIFF" ]]; then aws s3 cp <path-to-new-script> s3://$BUCKET_NAME/glue-job-script --region $REGION --sse AES256 && aws glue update-job --job-name $JOB_NAME --job-update "{\"JobCommand\":{\"ScriptLocation\":\"s3://$BUCKET_NAME/glue-job-script\"}}" --region $REGION; fi
+        done
