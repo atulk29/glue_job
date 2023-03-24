@@ -2,7 +2,7 @@ version: 0.2
 
 env:
   variables:
-    JOB_NAMES: "<job01.py>"
+    JOB_NAMES: "<job01>"
     BUCKET_NAME: "<s3://glue-code-dev>"
     REGION: "<ap-south-1>"
 
