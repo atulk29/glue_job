@@ -1,0 +1,38 @@
+# Set up the variables for the Glue jobs
+jobs:
+  - name: "job01.py"
+    script_path: "s3://glue-code-dev/job01.py"
+    additional_args: "--additional-argument-1=value1 --additional-argument-2=value2"
+  
+# Generate the YAML code for each Glue job using a for loop
+{% for job in jobs %}
+version: 0.2
+env:
+  variables:
+    shell: bash
+    bucket_name: "your-bucket-name"
+    job_name: "{{ job.name }}"
+    job_script_path: "{{ job.script_path }}"
+phases:
+  install:
+    commands:
+      - echo Entered the install phase for {{ job.name }}....
+      - apt-get update -y
+      - apt-get install -y zip
+      - apt-get install -y awscli
+    finally:
+      - echo This always runs even if the update or install command fails 
+  build:
+    commands:
+      - echo Entered the build phase for {{ job.name }}......
+      - aws s3 cp $job_script_path .
+      - zip -r job.zip .
+      - aws s3 cp job.zip s3://$bucket_name/
+      - aws glue start-job-run --job-name $job_name --arguments='--job-bookmark-option=job-bookmark-enable --job-language=python --job-queue=Glue_Default_Queue --job-run-id=12345 --job-arguments="--s3_bucket_name='$bucket_name'" "{{ job.additional_args }}"'
+    finally:
+      - echo Installation Completed for {{ job.name }}......
+  post_build:
+    commands:
+      - echo Entered the post_build phase for {{ job.name }}....
+      - echo Build completed on `date`
+{% endfor %}
