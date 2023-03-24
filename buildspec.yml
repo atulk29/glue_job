@@ -2,33 +2,33 @@ version: 0.2
 
 env:
   variables:
-    JOB_NAMES: "<job01>"
-    BUCKET_NAME: "<s3://glue-code-dev>"
-    REGION_NAME: "ap-south-1"
+    S3_BUCKET_NAME: "s3://glue-code-dev"
+    CODECOMMIT_REPO_NAME: "your-repo"
+    GLUE_JOB_NAMES: "job1"
 
 phases:
   install:
     runtime-versions:
-      python: 3.10
+      python: 3.8
     commands:
-      - pip install awscli
+      - apt-get update && apt-get install -y python3-pip
+      - pip3 install awscli
+
   build:
     commands:
-      - export COMMIT_ID=$(aws codecommit get-commit --repository-name git@github.com:atulk29/glue_job.git --commit-id $(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -d':' -f2) | jq -r '.commitId')
-      - |
-        for JOB_NAME in $JOB_NAMES; do
-          for FILE_PATH in "${FILES_TO_CHECK[@]}"; do
-            if [[ -f "$FILE_PATH" ]]; then
-              DIFF=$(aws glue get-job --job-name $JOB_NAME --query 'job.ScriptLocation' | cut -d'/' -f4- | xargs -I {} aws s3 cp {} s3://$BUCKET_NAME/glue-job-script --quiet --region $REGION_NAME --sse AES256 && aws s3api head-object --bucket $BUCKET_NAME --key glue-job-script --if-modified-since "$(aws codecommit get-commit --repository-name $REPO_NAME --commit-id $COMMIT_ID | jq -r '.commit.committer.date' | date -u +"%a, %d %b %Y %T GMT")" || echo "No changes in the Glue job script."
-              if [[ -n "$DIFF" ]]; then
-                aws s3 cp "$FILE_PATH" s3://$BUCKET_NAME/glue-job-script --region $REGION_NAME --sse AES256
-                aws glue update-job --job-name $JOB_NAME --job-update "{\"JobCommand\":{\"ScriptLocation\":\"s3://$BUCKET_NAME/glue-job-script\"}}" --region $REGION_NAME
-              fi
-            else
-              echo "File $FILE_PATH not found."
-            fi
-          done
+      - aws s3 cp s3://${S3_BUCKET_NAME}/job01.py .
+      - aws codepipeline get-pipeline-state --name your-pipeline > pipeline_state.json
+      - LATEST_COMMIT=$(jq -r '.stageStates[0].actionStates[0].latestExecution.externalExecutionId' pipeline_state.json)
+      - LATEST_FILE=$(aws codecommit get-file --repository-name ${CODECOMMIT_REPO_NAME} --file-path your-code.py --commit-id $LATEST_COMMIT --query 'fileContent' --output text)
+      - echo "$LATEST_FILE" > latest-code.py
+      - for JOB_NAME in $(echo ${GLUE_JOB_NAMES} | tr ',' ' ')
+        do
+          aws glue get-job --job-name $JOB_NAME > job_state.json
+          CURRENT_HASH=$(jq -r '.job.Command.ScriptLocation' job_state.json | cut -d'#' -f2)
+          LATEST_HASH=$(md5sum latest-code.py | cut -d' ' -f1)
+          if [ "$CURRENT_HASH" != "$LATEST_HASH" ]
+          then
+            aws glue update-job --job-name $JOB_NAME --job-args '{"--arg1":"value1", "--arg2":"value2"}'
+            aws s3 cp latest-code.py s3://${S3_BUCKET_NAME}/
+          fi
         done
-
-
-
