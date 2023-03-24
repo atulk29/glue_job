@@ -4,7 +4,7 @@ env:
   variables:
     JOB_NAMES: "<job01>"
     BUCKET_NAME: "<s3://glue-code-dev>"
-    REGION: "<ap-south-1>"
+    REGION_NAME: "ap-south-1"
 
 phases:
   install:
@@ -17,6 +17,6 @@ phases:
       - export COMMIT_ID=$(aws codecommit get-commit --repository-name <repository-name> --commit-id $(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -d':' -f2) | jq -r '.commitId')
       - |
         for JOB_NAME in $JOB_NAMES; do
-          DIFF=$(aws glue get-job --job-name $JOB_NAME | jq -r '.job.ScriptLocation' | cut -d'/' -f7- | xargs aws s3 cp - s3://$BUCKET_NAME/glue-job-script --quiet --region $REGION --sse AES256 && aws s3api head-object --bucket $BUCKET_NAME --key glue-job-script --if-modified-since "$(aws codecommit get-commit --repository-name <repository-name> --commit-id $COMMIT_ID | jq -r '.commit.committer.date' | date -u +"%a, %d %b %Y %T GMT")" || echo "No changes in the Glue job script.")
-          if [[ -n "$DIFF" ]]; then aws s3 cp <path-to-new-script> s3://$BUCKET_NAME/glue-job-script --region $REGION --sse AES256 && aws glue update-job --job-name $JOB_NAME --job-update "{\"JobCommand\":{\"ScriptLocation\":\"s3://$BUCKET_NAME/glue-job-script\"}}" --region $REGION; fi
+          DIFF=$(aws glue get-job --job-name $JOB_NAME | jq -r '.job.ScriptLocation' | cut -d'/' -f7- | xargs -I {} aws s3 cp {} s3://$BUCKET_NAME/glue-job-script --quiet --region $REGION_NAME --sse AES256 && aws s3api head-object --bucket $BUCKET_NAME --key glue-job-script --if-modified-since "$(aws codecommit get-commit --repository-name <repository-name> --commit-id $COMMIT_ID | jq -r '.commit.committer.date' | date -u +"%a, %d %b %Y %T GMT")" || echo "No changes in the Glue job script."
+          if [[ -n "$DIFF" ]]; then aws s3 cp <path-to-new-script> s3://$BUCKET_NAME/glue-job-script --region $REGION_NAME --sse AES256 && aws glue update-job --job-name $JOB_NAME --job-update "{\"JobCommand\":{\"ScriptLocation\":\"s3://$BUCKET_NAME/glue-job-script\"}}" --region $REGION_NAME; fi
         done
